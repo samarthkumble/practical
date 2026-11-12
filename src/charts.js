@@ -51,7 +51,10 @@ export function lineChart(canvas, series, opts = {}) {
   }
   const step = niceStep((x1 - x0) / 6);
   for (let x = Math.ceil(x0 / step) * step; x <= x1; x += step) {
-    g.fillText(`${fmt(x)}${opts.xUnit ?? 's'}`, X(x) - 8, h - 8);
+    const label = `${fmt(x)}${opts.xUnit ?? 's'}`;
+    const lw = g.measureText(label).width;
+    const lx = Math.min(X(x) - lw / 2, w - lw - 2);
+    g.fillText(label, lx, h - 8);
   }
 
   for (const r of opts.refLines || []) {
