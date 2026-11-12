@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; worker-src 'self' blob:; connect-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Practical</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26"><path d="M2 18h7l3-8 4 15 4-12 2 5h8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span class="name">Practical</span>
+      <span class="sub">a webcam physiology lab</span>
+    </div>
+    <nav class="nav">
+      <button data-go="home">Participants</button>
+      <button data-go="class">Class results</button>
+      <button data-go="about">Consent &amp; data</button>
+    </nav>
+    <div class="meter" id="meter" title="Camera time used on this laptop. 1 Presage credit = 30 seconds."></div>
+  </header>
+  <div id="demo-banner" class="demo-banner" hidden>
+    DEMO MODE: synthetic numbers, no camera, no credits. Nothing here is a real measurement.
+  </div>
+  <main id="app"></main>
+  <script src="dist/app.bundle.js"></script>
+</body>
+</html>

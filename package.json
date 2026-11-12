@@ -1,0 +1,23 @@
+{
+  "name": "practical",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A consent-first webcam physiology lab for students: classic breathing and heartbeat experiments with the Presage SmartSpectra SDK.",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:demo": "node scripts/build.mjs --demo",
+    "start": "node scripts/build.mjs && electron .",
+    "demo": "node scripts/build.mjs --demo && electron .",
+    "test": "node --test test/*.test.mjs",
+    "eval": "node scripts/eval.mjs"
+  },
+  "dependencies": {
+    "@smartspectra/node-sdk": "3.5.0"
+  },
+  "devDependencies": {
+    "electron": "43.8.1",
+    "esbuild": "^0.25.0"
+  }
+}
