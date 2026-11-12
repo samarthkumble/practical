@@ -1,7 +1,7 @@
 // Practical: the renderer app. Screens are plain functions that render into #app.
 import { PROTOCOLS, PROTOCOL_ORDER, creditEstimate, cameraSeconds } from './protocols.js';
 import { analyse } from './analysis.js';
-import { Measurement, ProcessingStatus } from './measure.js';
+import { Measurement, ProcessingStatus, VALIDATION_HINTS } from './measure.js';
 import { store } from './store.js';
 import { INFO, ITEMS, CONSENT_VERSION } from './consent.js';
 import { lineChart } from './charts.js';
@@ -470,7 +470,8 @@ function qualityStrip(q, which = 'pulse') {
   const cls = stable == null ? 'warn' : ok ? '' : 'warn';
   return `<div class="callout ${cls} small"><b>${ok ? 'Good signal.' : 'Weak signal: read these numbers with care.'}</b>
     The SDK marked ${pct(stable)} of its ${which} readings as stable (confidence ${dash(conf)} / 100 on average).
-    Framing problems ${pct(q.framingProblemShare)} of the time, talking ${pct(q.talkingShare)}.</div>`;
+    Framing problems ${pct(q.framingProblemShare)} of the time, talking ${pct(q.talkingShare)}.
+    ${q.topProblem != null && q.framingProblemShare > 0.05 ? `<br>Main problem: <b>${h(VALIDATION_HINTS[q.topProblem] || `status ${q.topProblem}`)}</b>` : ''}</div>`;
 }
 
 async function result(id) {

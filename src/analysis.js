@@ -91,12 +91,43 @@ export function traceRate(trace, t0, t1, { smooth = 0.6, highpass = null } = {})
   return { rate, breaths: ups.length };
 }
 
+// Splits [t0, t1) into [start, end, validationCode] pieces using the SDK's
+// validation events (code 0 = framing OK). null = no status known yet.
+export function segments(validation, t0, t1) {
+  const ev = validation || [];
+  let code = ev.filter((e) => e[0] <= t0).pop()?.[1] ?? null;
+  let last = t0;
+  const out = [];
+  for (const [t, c] of ev.filter((e) => e[0] > t0 && e[0] < t1)) {
+    if (t > last) out.push([last, t, code]);
+    code = c;
+    last = t;
+  }
+  if (t1 > last) out.push([last, t1, code]);
+  return out;
+}
+
 // Pulse (beats/min) counted from the SDK's pulse wave (arterial pressure
-// trace), independent of the SDK's own pulse estimate.
-export function waveRate(wave, t0, t1) {
-  const r = traceRate(wave, t0, t1, { smooth: 0.12, highpass: 1.4 });
-  if (r.rate == null || r.rate < 35 || r.rate > 190) return { rate: null, beats: r.breaths };
-  return { rate: r.rate, beats: r.breaths };
+// trace), independent of the SDK's own pulse estimate. When validation
+// events are given, only stretches where the SDK reported good framing for
+// at least 8 s are used, and the rate is their duration-weighted average.
+export function waveRate(wave, t0, t1, validation = null) {
+  const opts = { smooth: 0.12, highpass: 1.4 };
+  const ok = (r) => r.rate != null && r.rate >= 35 && r.rate <= 190;
+  if (!validation || !validation.length) {
+    const r = traceRate(wave, t0, t1, opts);
+    return ok(r) ? { rate: r.rate, beats: r.breaths, seconds: t1 - t0 } : { rate: null, beats: r.breaths, seconds: 0 };
+  }
+  let wsum = 0, secs = 0, beats = 0;
+  for (const [a, b, c] of segments(validation, t0, t1)) {
+    if (c !== 0 || b - a < 8) continue;
+    const r = traceRate(wave, a, b, opts);
+    if (!ok(r)) continue;
+    wsum += r.rate * (b - a);
+    secs += b - a;
+    beats += r.breaths;
+  }
+  return secs ? { rate: wsum / secs, beats, seconds: secs } : { rate: null, beats: 0, seconds: 0 };
 }
 
 // A rate (pulse or breathing) over a window, using only readings the SDK
@@ -120,16 +151,15 @@ export function quality(session, t0, t1) {
   const talk = inWindow(session.samples.talking, t0, t1);
   const talking = talk.length ? mean(talk.map((s) => s[1])) : null;
 
-  const ev = session.validation || [];
   let bad = 0;
-  let code = ev.filter((e) => e[0] <= t0).pop()?.[1] ?? null;
-  let last = t0;
-  for (const [t, c] of ev.filter((e) => e[0] > t0 && e[0] < t1)) {
-    if (code !== 0 && code !== null) bad += t - last;
-    code = c;
-    last = t;
+  const byCode = {};
+  for (const [a, b, c] of segments(session.validation, t0, t1)) {
+    if (c !== 0 && c !== null) {
+      bad += b - a;
+      byCode[c] = (byCode[c] || 0) + (b - a);
+    }
   }
-  if (code !== 0 && code !== null) bad += t1 - last;
+  const top = Object.entries(byCode).sort((x, y) => y[1] - x[1])[0];
   const pw = inWindow(session.samples.pulse, t0, t1);
   const bw = inWindow(session.samples.br, t0, t1);
   const conf = (w) => {
@@ -140,6 +170,7 @@ export function quality(session, t0, t1) {
   return {
     talkingShare: talking == null ? null : round(talking, 2),
     framingProblemShare: round(bad / Math.max(1e-9, t1 - t0), 2),
+    topProblem: top ? Number(top[0]) : null,
     pulseConfidence: conf(pw),
     pulseStableShare: share(pw),
     breathingConfidence: conf(bw),
@@ -184,7 +215,7 @@ export function heartbeatResults(session) {
   const rows = [];
   for (const p of session.phases.filter((x) => x.kind === 'count' && x.end != null)) {
     const sdk = stableRate(session.samples.pulse, p.start, p.end);
-    const wave = waveRate(session.samples.wave, p.start, p.end).rate;
+    const wave = waveRate(session.samples.wave, p.start, p.end, session.validation).rate;
     const rate = sdk.value ?? wave;
     const seconds = p.end - p.start;
     const actual = rate == null ? null : (rate * seconds) / 60;
@@ -247,7 +278,7 @@ export function pulsecheckResults(session) {
   const ref = phase(session, 'ref');
   if (!ref) return null;
   const sdk = stableRate(session.samples.pulse, ref.start, ref.end);
-  const wave = waveRate(session.samples.wave, ref.start, ref.end).rate;
+  const wave = waveRate(session.samples.wave, ref.start, ref.end, session.validation).rate;
   const count = session.answers?.ref;
   // The partner counts for the timed 30 s shown on screen.
   const secs = ref.planned ?? (ref.end - ref.start);

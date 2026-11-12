@@ -172,3 +172,24 @@ test('pulsecheckResults reports stable, all-readings and pulse-wave errors separ
   assert.equal(r.quality.pulseStableShare, 0.5);
   assert.equal(r.waveRate, null);
 });
+
+test('waveRate ignores stretches where the SDK reported a framing problem', async () => {
+  const { waveRate } = await import('../src/analysis.js');
+  const r = rng(11);
+  const wave = [];
+  for (let t = 0; t <= 30; t += 1 / 30) {
+    // Clean 70 bpm for 0-18 s, then a framing problem: wave collapses to noise.
+    wave.push([t, t < 18 ? Math.sin(2 * Math.PI * (70 / 60) * t) + 0.1 * r() : 0.3 * r()]);
+  }
+  const val = [[0, 0], [18, 12]];
+  const got = waveRate(wave, 0, 30, val);
+  assert.ok(Math.abs(got.rate - 70) < 2, `expected ~70, got ${got.rate}`);
+  assert.equal(Math.round(got.seconds), 18);
+});
+
+test('quality names the framing problem that took up the most time', () => {
+  const s = { samples: emptySamples(), validation: [[0, 0], [2, 5], [6, 0], [7, 12], [8, 0]] };
+  const q = quality(s, 0, 10);
+  assert.equal(q.topProblem, 5);
+  assert.equal(q.framingProblemShare, 0.5);
+});
