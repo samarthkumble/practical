@@ -6,9 +6,10 @@ import {
 } from '@smartspectra/node-sdk/renderer';
 import { decodeMetrics } from '@smartspectra/node-sdk/messages';
 
-// Breathing (chest + belly traces + rate), pulse rate, and blink/talking
+// Breathing (chest + belly traces + rate), pulse rate, the pulse wave
+// (arterial pressure trace, used to count beats ourselves) and blink/talking
 // detection. Talking is only used as a data-quality flag.
-const REQUESTED = [0, 1, 2, 15, 12, 13];
+const REQUESTED = [0, 1, 2, 15, 16, 12, 13];
 
 export const VALIDATION_HINTS = {
   0: 'Good. Hold still.',
@@ -53,7 +54,7 @@ export class Measurement {
   }
 
   reset() {
-    this.raw = { pulse: [], br: [], upper: [], lower: [], blink: [], talking: [], validation: [] };
+    this.raw = { pulse: [], br: [], upper: [], lower: [], wave: [], blink: [], talking: [], validation: [] };
     this.offset = null; // receivedAt - sdkTimestamp, in ms (minimum seen)
     this.startedAt = null;
     this.runningSince = null;
@@ -107,13 +108,16 @@ export class Measurement {
           const ms = tsMs(x.timestamp);
           if (ms == null) continue;
           this.learn(ms);
-          list.push(withConf ? [ms, x.value, x.confidence ?? null] : [ms, x.value]);
+          // Rates keep confidence (0-100) and the SDK's own "stable" verdict
+          // (pulse: confidence >= 40, about +/-3 bpm; breathing: >= 45).
+          list.push(withConf ? [ms, x.value, x.confidence ?? null, x.stable ? 1 : 0] : [ms, x.value]);
         }
       };
       push(this.raw.pulse, m.cardio?.pulseRate, true);
       push(this.raw.br, m.breathing?.rate, true);
       push(this.raw.upper, m.breathing?.upperTrace, false);
       push(this.raw.lower, m.breathing?.lowerTrace, false);
+      push(this.raw.wave, m.cardio?.arterialPressureTrace, false);
       for (const [key, arr] of [['blink', m.face?.blinking], ['talking', m.face?.talking]]) {
         for (const x of arr || []) {
           const ms = tsMs(x.timestamp);
@@ -140,6 +144,8 @@ export class Measurement {
     return {
       pulse: lp ? lp[1] : null,
       pulseConfidence: lp ? lp[2] : null,
+      pulseStable: lp ? lp[3] === 1 : false,
+      breathingStable: lb ? lb[3] === 1 : false,
       breathing: lb ? lb[1] : null,
       upper: tail(this.raw.upper, 450),
       lower: tail(this.raw.lower, 450),
@@ -167,7 +173,7 @@ export class Measurement {
     return {
       samples: {
         pulse: map(this.raw.pulse), br: map(this.raw.br),
-        upper: map(this.raw.upper), lower: map(this.raw.lower),
+        upper: map(this.raw.upper), lower: map(this.raw.lower), wave: map(this.raw.wave),
         blink: map(this.raw.blink), talking: map(this.raw.talking),
       },
       validation: map(this.raw.validation),

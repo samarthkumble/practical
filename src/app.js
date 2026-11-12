@@ -29,6 +29,7 @@ async function go(route, arg) {
   window.scrollTo(0, 0);
   const screens = { home, consent, participant, prepare, result, class: classView, about };
   await screens[route](arg);
+  updateMeter();
 }
 
 document.querySelector('.nav').addEventListener('click', (e) => {
@@ -238,6 +239,7 @@ function runExperiment(code, pr) {
           <div class="readout"><div class="v" id="r-br">—</div><div class="l">breathing / min (camera)</div></div>
           <div class="readout"><div class="v" id="r-pulse">${hidePulse ? 'hidden' : '—'}</div><div class="l">${hidePulse ? 'pulse hidden until the end' : 'pulse / min (camera)'}</div></div>
         </div>
+        <div class="small muted" id="r-sig" style="margin-top:8px">Signal: waiting for the first readings…</div>
         <div class="chartbox" style="margin-top:12px">
           <div class="legend"><span><i style="background:var(--chest)"></i>chest</span><span><i style="background:var(--belly)"></i>belly</span><span>last 15 s</span></div>
           <canvas id="c-trace"></canvas>
@@ -286,6 +288,12 @@ function runExperiment(code, pr) {
       if ($('r-br')) $('r-br').textContent = live.breathing == null ? '—' : live.breathing.toFixed(0);
       if (!hidePulse && $('r-pulse')) $('r-pulse').textContent = live.pulse == null ? '—' : live.pulse.toFixed(0);
       drawTrace(live);
+      const sig = $('r-sig');
+      if (sig) {
+        sig.textContent = live.pulseStable && live.breathingStable ? 'Signal: stable \u2713 (the SDK trusts its readings)'
+          : live.pulseStable || live.breathingStable ? 'Signal: partly stable. Keep still, keep the light on your face.'
+          : 'Signal: settling. Keep still and look at the screen.';
+      }
     },
     onError: (err) => {
       if ($('p-error')) {
@@ -451,12 +459,26 @@ function getCss(v) { return getComputedStyle(document.documentElement).getProper
 
 /* ---------- result ---------- */
 
+const pct = (x) => (x == null ? '\u2014' : `${Math.round(x * 100)}%`);
+
+// One line on how trustworthy the measurement was, in plain words.
+function qualityStrip(q, which = 'pulse') {
+  if (!q) return '';
+  const conf = which === 'pulse' ? q.pulseConfidence : q.breathingConfidence;
+  const stable = which === 'pulse' ? q.pulseStableShare : q.breathingStableShare;
+  const ok = stable != null && stable >= 0.6 && (q.framingProblemShare ?? 0) <= 0.2 && (q.talkingShare ?? 0) <= 0.2;
+  const cls = stable == null ? 'warn' : ok ? '' : 'warn';
+  return `<div class="callout ${cls} small"><b>${ok ? 'Good signal.' : 'Weak signal: read these numbers with care.'}</b>
+    The SDK marked ${pct(stable)} of its ${which} readings as stable (confidence ${dash(conf)} / 100 on average).
+    Framing problems ${pct(q.framingProblemShare)} of the time, talking ${pct(q.talkingShare)}.</div>`;
+}
+
 async function result(id) {
   const all = await store.sessions();
   const s = all.find((x) => x.id === id);
   if (!s) return go('home');
   const pr = PROTOCOLS[s.protocol];
-  const r = s.results || analyse(s);
+  const r = analyse(s);
   const bands = s.phases.filter((p) => p.end != null).map((p, i) => ({
     from: p.start, to: p.end, label: PROTOCOLS[s.protocol].phases.find((x) => x.id === p.id)?.label,
     color: i % 2 ? 'rgba(31,42,68,0.035)' : 'rgba(31,42,68,0.075)',
@@ -485,6 +507,7 @@ async function result(id) {
       <div class="chartbox"><div class="legend"><span><i style="background:var(--chest)"></i>chest movement</span><span><i style="background:var(--belly)"></i>belly movement</span></div><canvas id="c2"></canvas></div>
       <table><thead><tr><th>Block</th><th class="num">Pacer</th><th class="num">Camera rate</th><th class="num">Error</th><th class="num">Counted from chest</th><th class="num">Counted from belly</th><th class="num">Belly share</th><th class="num">Framing problems</th></tr></thead>
       <tbody>${r.rows.map((row) => `<tr><td>${h(row.phase)}</td><td class="num">${row.target}</td><td class="num">${dash(row.sdkRate)}</td><td class="num">${dash(row.sdkError)}</td><td class="num">${dash(row.chestTraceRate)}</td><td class="num">${dash(row.bellyTraceRate)}</td><td class="num">${row.bellyShare == null ? '—' : Math.round(row.bellyShare * 100) + '%'}</td><td class="num">${row.quality.framingProblemShare == null ? '—' : Math.round(row.quality.framingProblemShare * 100) + '%'}</td></tr>`).join('')}</tbody></table>
+      ${qualityStrip(r.rows[r.rows.length - 1]?.quality, 'breathing')}
       <p class="small muted">"Camera rate" is the SDK’s own estimate (median of the last 30 s of each block). "Counted from chest/belly" is our own count of breaths in the raw movement traces, a second, independent reading. "Belly share" is how much of the movement came from the belly rather than the chest.</p>`;
     lineChart(document.getElementById('c1'), [{ points: s.samples.br.map((x) => [x[0], x[1]]), color: getCss('--ink') }], {
       bands, refLines: s.phases.filter((p) => p.kind === 'pace' && p.end).map((p) => ({ y: p.rate, from: p.start, to: p.end, color: getCss('--margin') })),
@@ -503,6 +526,7 @@ async function result(id) {
       </div>
       <table><thead><tr><th>Interval</th><th class="num">Seconds</th><th class="num">Camera pulse</th><th class="num">True beats</th><th class="num">You counted</th><th class="num">Accuracy</th><th class="num">Framing problems</th></tr></thead>
       <tbody>${r.rows.map((row) => `<tr><td>${h(row.phase)}</td><td class="num">${row.seconds}</td><td class="num">${dash(row.cameraPulse)}</td><td class="num">${dash(row.trueBeats)}</td><td class="num">${dash(row.reported)}</td><td class="num">${row.accuracy == null ? '—' : Math.round(row.accuracy * 100) + '%'}</td><td class="num">${row.quality.framingProblemShare == null ? '—' : Math.round(row.quality.framingProblemShare * 100) + '%'}</td></tr>`).join('')}</tbody></table>
+      ${qualityStrip(r.rows[0]?.quality, 'pulse')}
       ${chart('c1', 'tall')}
       <p class="small muted">True beats = mean camera pulse during the interval × its length. Accuracy per interval = 1 − |true − counted| ÷ true (Schandry, 1981).</p>`;
     lineChart(document.getElementById('c1'), [{ points: s.samples.pulse.map((x) => [x[0], x[1]]), color: getCss('--pulse'), dots: true }], { bands });
@@ -515,6 +539,7 @@ async function result(id) {
         <div class="card"><div class="stat">${r.pulseChange == null ? '—' : (r.pulseChange > 0 ? '+' : '') + r.pulseChange}</div><div class="stat-label">change (beats/min)</div></div>
         <div class="card"><div class="stat">${r.recovered == null ? '—' : Math.round(Math.min(1, r.recovered) * 100) + '%'}</div><div class="stat-label">of the rise gone after 60 s rest</div></div>
       </div>
+      ${qualityStrip(r.quality?.task, 'pulse')}
       <div class="chartbox tall"><div class="legend"><span><i style="background:var(--pulse)"></i>camera pulse</span></div><canvas id="c1"></canvas></div>
       <div class="chartbox"><div class="legend"><span><i style="background:var(--ink)"></i>camera breathing rate</span></div><canvas id="c2"></canvas></div>
       <p class="small">Breathing at rest ${dash(r.restBreathing)} / min, during the sums ${dash(r.taskBreathing)} / min. Reached ${dash(r.answer)} counting back from 1000.</p>
@@ -523,15 +548,26 @@ async function result(id) {
     lineChart(document.getElementById('c2'), [{ points: s.samples.br.map((x) => [x[0], x[1]]), color: getCss('--ink') }], { bands });
   } else if (s.protocol === 'pulsecheck') {
     if (!r) { body.innerHTML = '<p>Not enough data.</p>'; return; }
+    const sign = (v) => (v == null ? '\u2014' : (v > 0 ? '+' : '') + v);
     body.innerHTML = `
-      <div class="grid3">
-        <div class="card"><div class="stat">${dash(r.cameraPulse)}</div><div class="stat-label">camera pulse (beats/min)</div></div>
-        <div class="card"><div class="stat">${dash(r.referencePulse)}</div><div class="stat-label">wrist count by partner × 2</div></div>
-        <div class="card"><div class="stat">${r.error == null ? '—' : (r.error > 0 ? '+' : '') + r.error}</div><div class="stat-label">difference (camera − wrist)</div></div>
+      <div class="grid4">
+        <div class="card"><div class="stat">${dash(r.referencePulse)}</div><div class="stat-label">wrist count by partner \u00d7 2 (the reference)</div></div>
+        <div class="card"><div class="stat">${dash(r.cameraPulse)}</div><div class="stat-label">camera pulse, stable readings only (${sign(r.error)})</div></div>
+        <div class="card"><div class="stat">${dash(r.cameraPulseAllReadings)}</div><div class="stat-label">camera pulse, all readings (${sign(r.errorAllReadings)})</div></div>
+        <div class="card"><div class="stat">${dash(r.waveRate)}</div><div class="stat-label">beats counted in the pulse wave (${sign(r.waveError)})</div></div>
       </div>
-      ${chart('c1')}
-      <p class="small muted">A hand count over 30 s can itself be off by a beat or two (±2–4 beats/min), so small differences are expected from both sides.</p>`;
-    lineChart(document.getElementById('c1'), [{ points: s.samples.pulse.map((x) => [x[0], x[1]]), color: getCss('--pulse'), dots: true }], { bands });
+      ${qualityStrip(r.quality, 'pulse')}
+      <div class="chartbox"><div class="legend"><span><i style="background:var(--pulse)"></i>camera pulse (dots = stable)</span><span><i style="background:var(--margin)"></i>wrist reference</span></div><canvas id="c1"></canvas></div>
+      <div class="chartbox"><div class="legend"><span><i style="background:var(--pulse)"></i>pulse wave from the camera</span></div><canvas id="c2"></canvas></div>
+      <p class="small muted">"Stable" is the SDK\u2019s own verdict on each pulse reading (confidence of 40 or more, about \u00b13 beats/min). A hand count over 30 s can itself be off by a beat or two (\u00b12\u20134 beats/min).</p>`;
+    const ref = s.phases.find((p) => p.id === 'ref');
+    lineChart(document.getElementById('c1'), [
+      { points: s.samples.pulse.map((x) => [x[0], x[1]]), color: getCss('--pulse') },
+      { points: s.samples.pulse.filter((x) => x[3] === 1 || x[3] === undefined).map((x) => [x[0], x[1]]), color: getCss('--pulse'), dots: true, width: 0 },
+    ], { bands, refLines: r.referencePulse && ref ? [{ y: r.referencePulse, from: ref.start, to: ref.end, color: getCss('--margin') }] : [] });
+    const wave = s.samples.wave || [];
+    lineChart(document.getElementById('c2'), [{ points: ref ? wave.filter((x) => x[0] >= ref.start && x[0] < Math.min(ref.end, ref.start + 10)).map((x) => [x[0], x[1]]) : [], color: getCss('--pulse'), width: 1.2 }],
+      { yTicks: false, empty: 'No pulse wave recorded (sessions before this version did not record it).' });
   }
 }
 
@@ -558,7 +594,7 @@ function download(name, text, type) {
 export function summaryRows(sessions) {
   const rows = [];
   for (const s of sessions) {
-    const r = s.results || analyse(s);
+    const r = analyse(s);
     if (!r) continue;
     const base = { participant: s.participant, protocol: s.protocol, startedAt: new Date(s.startedAt).toISOString(), demo: !!s.demo, cameraSeconds: s.cameraSeconds };
     if (s.protocol === 'breathing') {
@@ -568,14 +604,14 @@ export function summaryRows(sessions) {
     } else if (s.protocol === 'stress') {
       rows.push({ ...base, item: 'rest_vs_task', expected: r.restPulse, measured: r.taskPulse, error: r.pulseChange, extra1: r.recoveryLatePulse, extra2: r.recovered, framingProblemShare: r.quality?.task?.framingProblemShare, talkingShare: r.quality?.task?.talkingShare });
     } else if (s.protocol === 'pulsecheck') {
-      rows.push({ ...base, item: 'pulse_vs_wrist', expected: r.referencePulse, measured: r.cameraPulse, error: r.error, framingProblemShare: r.quality.framingProblemShare, talkingShare: r.quality.talkingShare });
+      rows.push({ ...base, item: 'pulse_vs_wrist', expected: r.referencePulse, measured: r.cameraPulse, error: r.error, extra1: r.cameraPulseAllReadings, extra2: r.waveRate, framingProblemShare: r.quality.framingProblemShare, talkingShare: r.quality.talkingShare, stableShare: r.quality.pulseStableShare });
     }
   }
   return rows;
 }
 
 async function classView() {
-  const sessions = await store.sessions();
+  const sessions = (await store.sessions()).map((s) => ({ ...s, results: analyse(s) }));
   const real = sessions.filter((s) => DEMO || !s.demo);
   const br = latestBy(real, 'breathing');
   const hb = latestBy(real, 'heartbeat');
@@ -614,13 +650,14 @@ async function classView() {
       <tbody>${st.map((s) => `<tr><td>${h(s.participant)}</td><td class="num">${dash(s.results?.restPulse)}</td><td class="num">${dash(s.results?.taskPulse)}</td><td class="num">${dash(s.results?.pulseChange)}</td><td class="num">${s.results?.recovered == null ? '—' : Math.round(Math.min(1, s.results.recovered) * 100) + '%'}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No runs yet</td></tr>'}</tbody></table>
 
       <h2>Pulse checks</h2>
-      <table><thead><tr><th>Code</th><th>Time</th><th class="num">Camera</th><th class="num">Wrist × 2</th><th class="num">Difference</th></tr></thead>
-      <tbody>${pc.map((s) => `<tr><td>${h(s.participant)}</td><td>${new Date(s.startedAt).toLocaleTimeString()}</td><td class="num">${dash(s.results?.cameraPulse)}</td><td class="num">${dash(s.results?.referencePulse)}</td><td class="num">${dash(s.results?.error)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No runs yet</td></tr>'}</tbody></table>
+      <table><thead><tr><th>Code</th><th>Time</th><th class="num">Wrist × 2</th><th class="num">Camera (stable)</th><th class="num">Camera (all)</th><th class="num">Pulse wave</th><th class="num">Stable readings</th></tr></thead>
+      <tbody>${pc.map((s) => { const r = s.results || {}; return `<tr><td>${h(s.participant)}</td><td>${new Date(s.startedAt).toLocaleTimeString()}</td><td class="num">${dash(r.referencePulse)}</td><td class="num">${dash(r.cameraPulse)} (${dash(r.error)})</td><td class="num">${dash(r.cameraPulseAllReadings)} (${dash(r.errorAllReadings)})</td><td class="num">${dash(r.waveRate)} (${dash(r.waveError)})</td><td class="num">${r.quality?.pulseStableShare == null ? '—' : Math.round(r.quality.pulseStableShare * 100) + '%'}</td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">No runs yet</td></tr>'}</tbody></table>
+      <p class="small muted">Brackets show the difference from the wrist count. "Stable" readings are the ones the SDK itself rates as accurate to about ±3 beats/min.</p>
     </section>`;
 
   document.getElementById('csv').onclick = () => {
     const rows = summaryRows(real);
-    const cols = ['participant', 'protocol', 'item', 'expected', 'measured', 'error', 'extra1', 'extra2', 'framingProblemShare', 'talkingShare', 'cameraSeconds', 'demo', 'startedAt'];
+    const cols = ['participant', 'protocol', 'item', 'expected', 'measured', 'error', 'extra1', 'extra2', 'stableShare', 'framingProblemShare', 'talkingShare', 'cameraSeconds', 'demo', 'startedAt'];
     download('practical-summary.csv', [cols.join(','), ...rows.map((r) => cols.map((c) => csvEscape(r[c])).join(','))].join('\n'), 'text/csv');
   };
   document.getElementById('json').onclick = async () => {

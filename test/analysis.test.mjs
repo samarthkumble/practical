@@ -132,3 +132,43 @@ test('median handles even and odd lengths', () => {
   assert.equal(median([4, 1, 3, 2]), 2.5);
   assert.equal(median([]), null);
 });
+
+test('stableRate uses only readings the SDK marked stable, and refuses when there are too few', async () => {
+  const { stableRate } = await import('../src/analysis.js');
+  const s = [];
+  for (let t = 0; t < 30; t++) s.push([t, t < 15 ? 60 : 78, t < 15 ? 20 : 70, t < 15 ? 0 : 1]);
+  const r = stableRate(s, 0, 30);
+  assert.equal(r.value, 78);
+  assert.equal(r.allValue, 69);
+  assert.equal(r.stableShare, 0.5);
+  const none = stableRate(s, 0, 15);
+  assert.equal(none.value, null, 'no stable readings -> no number');
+  assert.equal(none.allValue, 60);
+});
+
+test('waveRate counts beats in a pulse wave with breathing wander on top', async () => {
+  const { waveRate } = await import('../src/analysis.js');
+  const r = rng(9);
+  for (const bpm of [55, 72, 95]) {
+    const wave = [];
+    for (let t = 0; t <= 30; t += 1 / 30) {
+      const beat = Math.sin(2 * Math.PI * (bpm / 60) * t);
+      const breath = 2 * Math.sin(2 * Math.PI * (14 / 60) * t);
+      wave.push([t, beat + breath + 0.15 * r()]);
+    }
+    const got = waveRate(wave, 0, 30).rate;
+    assert.ok(Math.abs(got - bpm) < 2, `expected ~${bpm}, got ${got}`);
+  }
+});
+
+test('pulsecheckResults reports stable, all-readings and pulse-wave errors separately', () => {
+  const s = { phases: [{ id: 'ref', kind: 'ref', planned: 30, start: 0, end: 30 }], samples: emptySamples(), validation: [[0, 0]], answers: { ref: 39 } };
+  for (let t = 0; t < 30; t++) s.samples.pulse.push([t, t % 2 ? 62 : 80, t % 2 ? 30 : 60, t % 2 ? 0 : 1]);
+  const r = pulsecheckResults(s);
+  assert.equal(r.referencePulse, 78);
+  assert.equal(r.cameraPulse, 80);
+  assert.equal(r.error, 2);
+  assert.equal(r.errorAllReadings, -7);
+  assert.equal(r.quality.pulseStableShare, 0.5);
+  assert.equal(r.waveRate, null);
+});

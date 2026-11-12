@@ -25,6 +25,10 @@ export function lineChart(canvas, series, opts = {}) {
   let x1 = opts.xMax ?? Math.max(...pts.map((p) => p[0]));
   let y0 = opts.yMin ?? Math.min(...pts.map((p) => p[1]));
   let y1 = opts.yMax ?? Math.max(...pts.map((p) => p[1]));
+  for (const r of opts.refLines || []) {
+    if (opts.yMin == null) y0 = Math.min(y0, r.y);
+    if (opts.yMax == null) y1 = Math.max(y1, r.y);
+  }
   if (x1 === x0) x1 = x0 + 1;
   if (y1 === y0) { y0 -= 1; y1 += 1; }
   if (opts.yPad !== false && opts.yMin == null) { const d = (y1 - y0) * 0.1; y0 -= d; y1 += d; }
@@ -47,7 +51,7 @@ export function lineChart(canvas, series, opts = {}) {
   for (let i = 0; i <= 4; i++) {
     const y = y0 + ((y1 - y0) * i) / 4;
     g.beginPath(); g.moveTo(pad.l, Y(y)); g.lineTo(w - pad.r, Y(y)); g.stroke();
-    if (opts.yTicks !== false) g.fillText(fmt(y), 4, Y(y) + 4);
+    if (opts.yTicks !== false) g.fillText(y1 - y0 < 8 ? y.toFixed(1) : fmt(y), 4, Y(y) + 4);
   }
   const step = niceStep((x1 - x0) / 6);
   for (let x = Math.ceil(x0 / step) * step; x <= x1; x += step) {

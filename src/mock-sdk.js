@@ -82,7 +82,11 @@ export class SmartSpectraSDK {
         lower.push({ value: 1.0 * Math.sin(phase - 0.3) + 0.08 * gauss(), timestamp: ts });
       }
       last = now;
-      this.emit('metrics', { breathing: { upperTrace: upper, lowerTrace: lower } }, nowUs());
+      const wave = upper.map((u, i) => ({
+        value: Math.sin(2 * Math.PI * (pulse / 60) * ((Date.now() - (2 - i) * 33) / 1000)) + 0.6 * u.value + 0.1 * gauss(),
+        timestamp: u.timestamp,
+      }));
+      this.emit('metrics', { breathing: { upperTrace: upper, lowerTrace: lower }, cardio: { arterialPressureTrace: wave } }, nowUs());
     }, 100));
 
     // Rates once a second, with the lag a windowed estimate has.
@@ -94,8 +98,8 @@ export class SmartSpectraSDK {
       pulse += (target - pulse) / 6 + gauss() * 0.6;
       const ts = nowUs();
       this.emit('metrics', {
-        breathing: { rate: [{ value: br + gauss() * 0.4, confidence: 0.8, stable: true, timestamp: ts }] },
-        cardio: { pulseRate: [{ value: pulse, confidence: 0.75, stable: true, timestamp: ts }] },
+        breathing: { rate: [{ value: br + gauss() * 0.4, confidence: 70, stable: true, timestamp: ts }] },
+        cardio: { pulseRate: [{ value: pulse, confidence: 65, stable: true, timestamp: ts }] },
         face: {
           talking: [{ detected: false, stable: true, timestamp: ts }],
           blinking: [{ detected: Math.random() < 0.25, stable: true, timestamp: ts }],
