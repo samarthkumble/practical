@@ -1,7 +1,10 @@
 // Local storage for participants and sessions (IndexedDB inside the app).
 // Nothing here ever leaves the laptop unless someone presses Export.
 
-const DB = 'practical';
+/* global __DEMO__ */
+// Demo mode keeps its synthetic sessions in a separate database, so they can
+// never mix with real measurements.
+const DB = __DEMO__ ? 'practical-demo' : 'practical';
 const VERSION = 1;
 
 function open() {
