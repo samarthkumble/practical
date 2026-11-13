@@ -50,7 +50,14 @@ export function traceRate(trace, t0, t1, { smooth = 0.6, highpass = null } = {})
   const pts = inWindow(trace, t0, t1);
   if (pts.length < 20) return { rate: null, breaths: 0 };
   const ts = pts.map((p) => p[0]);
-  const vs = pts.map((p) => p[1]);
+  // Real traces contain occasional huge spikes (the camera re-locking onto
+  // the face). Clip to median +/- 5 robust SDs so one spike cannot swamp the
+  // dead band below.
+  const raw = pts.map((p) => p[1]);
+  const med = median(raw);
+  const mad = median(raw.map((v) => Math.abs(v - med))) || 0;
+  const lim = 5 * 1.4826 * mad;
+  const vs = lim ? raw.map((v) => Math.min(med + lim, Math.max(med - lim, v))) : raw;
   const dt = (ts[ts.length - 1] - ts[0]) / (ts.length - 1) || 0.033;
   const movavg = (xs, width) => {
     const half = Math.max(1, Math.round(width / 2 / dt));
@@ -74,7 +81,9 @@ export function traceRate(trace, t0, t1, { smooth = 0.6, highpass = null } = {})
   }
   const sm = movavg(detr, smooth);
 
-  const band = 0.25 * (std(sm) || 0);
+  // Dead band from a robust spread (MAD) so leftover spikes do not inflate it.
+  const smMed = median(sm);
+  const band = 0.25 * 1.4826 * (median(sm.map((v) => Math.abs(v - smMed))) || 0) * 1.25;
   if (!band) return { rate: null, breaths: 0 };
   const ups = [];
   let state = sm[0] > band ? 1 : sm[0] < -band ? -1 : 0;
@@ -98,7 +107,10 @@ export function segments(validation, t0, t1) {
   let code = ev.filter((e) => e[0] <= t0).pop()?.[1] ?? null;
   let last = t0;
   const out = [];
+  // The SDK repeats its status every frame, so only a change of code starts
+  // a new piece.
   for (const [t, c] of ev.filter((e) => e[0] > t0 && e[0] < t1)) {
+    if (c === code) continue;
     if (t > last) out.push([last, t, code]);
     code = c;
     last = t;
