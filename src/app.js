@@ -241,7 +241,7 @@ function runExperiment(code, pr) {
         </div>
         <div class="small muted" id="r-sig" style="margin-top:8px">Signal: waiting for the first readings…</div>
         <div class="chartbox" style="margin-top:12px">
-          <div class="legend"><span><i style="background:var(--chest)"></i>chest</span><span><i style="background:var(--belly)"></i>belly</span><span>last 15 s</span></div>
+          <div class="legend"><span><i style="background:var(--chest)"></i>chest movement</span><span>last 15 s</span></div>
           <canvas id="c-trace"></canvas>
         </div>
       </div>
@@ -455,6 +455,16 @@ function runExperiment(code, pr) {
   });
 }
 
+// Real traces have rare huge spikes; clip them for display (median +/- 5 MAD).
+function clipSpikes(pts) {
+  const vs = pts.map((x) => x[1]).sort((a, b) => a - b);
+  if (!vs.length) return [];
+  const med = vs[vs.length >> 1];
+  const dev = pts.map((x) => Math.abs(x[1] - med)).sort((a, b) => a - b);
+  const lim = 5 * 1.4826 * (dev[dev.length >> 1] || 0);
+  return pts.map((x) => [x[0], lim ? Math.min(med + lim, Math.max(med - lim, x[1])) : x[1]]);
+}
+
 function getCss(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
 
 /* ---------- result ---------- */
@@ -499,24 +509,26 @@ async function result(id) {
   const chart = (id, cls = '') => `<div class="chartbox ${cls}"><canvas id="${id}"></canvas></div>`;
 
   if (s.protocol === 'breathing') {
+    const hasBelly = (s.samples.lower || []).length > 20;
+    const pctCell = (x) => (x == null ? '—' : Math.round(x * 100) + '%');
     body.innerHTML = `
       <div class="grid3">
         ${r.rows.map((row) => `<div class="card"><div class="stat-label">Pacer ${row.target} / min</div>
           <div class="stat">${dash(row.sdkRate)}</div><div class="stat-label">camera breathing rate${row.sdkError != null ? ` (${row.sdkError > 0 ? '+' : ''}${row.sdkError})` : ''}</div></div>`).join('')}
       </div>
       <div class="chartbox tall"><div class="legend"><span><i style="background:var(--ink)"></i>camera breathing rate</span><span><i style="background:var(--margin)"></i>pacer (the right answer)</span></div><canvas id="c1"></canvas></div>
-      <div class="chartbox"><div class="legend"><span><i style="background:var(--chest)"></i>chest movement</span><span><i style="background:var(--belly)"></i>belly movement</span></div><canvas id="c2"></canvas></div>
-      <table><thead><tr><th>Block</th><th class="num">Pacer</th><th class="num">Camera rate</th><th class="num">Error</th><th class="num">Counted from chest</th><th class="num">Counted from belly</th><th class="num">Belly share</th><th class="num">Framing problems</th></tr></thead>
-      <tbody>${r.rows.map((row) => `<tr><td>${h(row.phase)}</td><td class="num">${row.target}</td><td class="num">${dash(row.sdkRate)}</td><td class="num">${dash(row.sdkError)}</td><td class="num">${dash(row.chestTraceRate)}</td><td class="num">${dash(row.bellyTraceRate)}</td><td class="num">${row.bellyShare == null ? '—' : Math.round(row.bellyShare * 100) + '%'}</td><td class="num">${row.quality.framingProblemShare == null ? '—' : Math.round(row.quality.framingProblemShare * 100) + '%'}</td></tr>`).join('')}</tbody></table>
+      <div class="chartbox"><div class="legend"><span><i style="background:var(--chest)"></i>chest movement (spikes clipped)</span>${hasBelly ? '<span><i style="background:var(--belly)"></i>belly movement</span>' : ''}</div><canvas id="c2"></canvas></div>
+      <table><thead><tr><th>Block</th><th class="num">Pacer</th><th class="num">Camera rate</th><th class="num">Error</th><th class="num">Counted from chest movement</th>${hasBelly ? '<th class="num">Counted from belly</th>' : ''}<th class="num">Stable readings</th><th class="num">Framing problems</th></tr></thead>
+      <tbody>${r.rows.map((row) => `<tr><td>${h(row.phase)}</td><td class="num">${row.target}</td><td class="num">${dash(row.sdkRate)}</td><td class="num">${dash(row.sdkError)}</td><td class="num">${dash(row.chestTraceRate)}</td>${hasBelly ? `<td class="num">${dash(row.bellyTraceRate)}</td>` : ''}<td class="num">${pctCell(row.quality.breathingStableShare)}</td><td class="num">${pctCell(row.quality.framingProblemShare)}</td></tr>`).join('')}</tbody></table>
       ${qualityStrip(r.rows[r.rows.length - 1]?.quality, 'breathing')}
-      <p class="small muted">"Camera rate" is the SDK’s own estimate (median of the last 30 s of each block). "Counted from chest/belly" is our own count of breaths in the raw movement traces, a second, independent reading. "Belly share" is how much of the movement came from the belly rather than the chest.</p>`;
+      <p class="small muted">"Camera rate" is the SDK’s own estimate: the median of its stable readings in the last 30 s of each block. "Counted from chest movement" is our own count of breaths in the raw chest-movement trace, a second, independent reading. If both agree with each other but not with the pacer, the person probably did not keep to the pacer.</p>`;
     lineChart(document.getElementById('c1'), [{ points: s.samples.br.map((x) => [x[0], x[1]]), color: getCss('--ink') }], {
       bands, refLines: s.phases.filter((p) => p.kind === 'pace' && p.end).map((p) => ({ y: p.rate, from: p.start, to: p.end, color: getCss('--margin') })),
       yMin: 0, yMax: 24,
     });
     lineChart(document.getElementById('c2'), [
-      { points: s.samples.upper.map((x) => [x[0], x[1]]), color: getCss('--chest'), width: 1 },
-      { points: s.samples.lower.map((x) => [x[0], x[1]]), color: getCss('--belly'), width: 1 },
+      { points: clipSpikes(s.samples.upper), color: getCss('--chest'), width: 1 },
+      ...(hasBelly ? [{ points: clipSpikes(s.samples.lower), color: getCss('--belly'), width: 1 }] : []),
     ], { bands, yTicks: false });
   } else if (s.protocol === 'heartbeat') {
     const acc = r.interoceptiveAccuracy;
@@ -679,7 +691,7 @@ async function about() {
       <h3>While measuring</h3>
       <p>The camera turns on only after Start is pressed, a red "Camera on" label shows while it runs, and "Stop and discard" ends it at once without saving. The app asks the operating system for the camera only, never the microphone.</p>
       <h3>What is stored, and where</h3>
-      <p>Only numbers with timestamps (pulse, breathing rate, chest and belly movement, and whether the person was talking) are stored in the app’s local database on this laptop. No video frames or photos are stored. Results are labelled with the participant code.</p>
+      <p>Only numbers with timestamps (pulse, breathing rate, chest movement, the pulse wave, and whether the person was talking) are stored in the app’s local database on this laptop. No video frames or photos are stored. Results are labelled with the participant code.</p>
       <h3>What leaves the laptop</h3>
       <p>The Presage SDK processes video on this laptop and contacts Presage only to authorise the API key. Practical turns the SDK’s optional telemetry off (<span class="mono">enableTelemetry: false</span>). Nothing else is sent anywhere unless someone presses Export.</p>
       <h3>Withdrawal</h3>

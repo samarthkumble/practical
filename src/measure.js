@@ -6,7 +6,7 @@ import {
 } from '@smartspectra/node-sdk/renderer';
 import { decodeMetrics } from '@smartspectra/node-sdk/messages';
 
-// Breathing (chest + belly traces + rate), pulse rate, the pulse wave
+// Breathing (chest trace + rate; the desktop SDK sends no belly trace), pulse rate, the pulse wave
 // (arterial pressure trace, used to count beats ourselves) and blink/talking
 // detection. Talking is only used as a data-quality flag.
 const REQUESTED = [0, 1, 2, 15, 16, 12, 13];

@@ -58,7 +58,7 @@ npm run eval -- practical-data.json        # tables from an exported dataset
 
 | File | Role |
 |---|---|
-| `src/measure.js` | Wraps the SDK (renderer side), records pulse, breathing rate, chest and belly traces, talking and framing status on one clock |
+| `src/measure.js` | Wraps the SDK (renderer side), records pulse, breathing rate, the chest-movement trace, the pulse wave, talking and framing status on one clock |
 | `src/protocols.js` | The four experiments as timed phases |
 | `src/analysis.js` | Pure, unit-tested analysis: breath counting from raw traces, Schandry accuracy, reactivity and recovery, quality flags |
 | `src/app.js` | Screens: consent, run, results, class results, export |
