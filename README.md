@@ -14,7 +14,7 @@ Physiology hardware (ECG amplifiers, breathing belts, wrist sensors) is lab-budg
 
 ## Results from real sessions
 
-Built-in laptop webcam, 12 sessions from two people (the author and one friend, who consented in the app). A classroom demo, not a validation study.
+Built-in laptop webcam, 14 sessions from two people (the author and one friend, who consented in the app). A classroom demo, not a validation study.
 
 | Pulse check | Wrist × 2 | Camera (stable readings) | Difference | Beats counted in the pulse wave |
 |---|---|---|---|---|
@@ -22,12 +22,14 @@ Built-in laptop webcam, 12 sessions from two people (the author and one friend, 
 | P04 | 80 | 82.4 | +2.4 | 81.9 |
 | P05 | 68 | 68.1 | +0.1 | 65.5 |
 | P06 | 84 | 86.3 | +2.3 | 83.0 |
+| P07 | 76 | 73.8 | −2.2 | — |
 | P03 | 92 | no number (more than one face in view) | | |
 
 | Paced breathing | Pacer 6 | Pacer 10 | Pacer 15 |
 |---|---|---|---|
 | P04 camera rate | 3.7 | 9.9 | 14.0 |
 | P06 camera rate | 6.0 | 10.3 | 15.0 |
+| P07 camera rate | 6.2 | 10.2 | 15.1 |
 
 The first version averaged every reading and was off by −15.5 bpm; it now uses only readings the SDK marks stable, counts beats in the raw pulse wave as a second opinion, and shows a signal-quality box on every result.
 
